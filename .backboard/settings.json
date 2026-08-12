@@ -1,0 +1,19 @@
+{
+	"permissions": {
+		"allow": [
+			"fetch_url",
+			"execute(where python:*)",
+			"execute(command -v:*)",
+			"execute(where py:*)",
+			"execute(where python3:*)",
+			"execute(python --version:*)",
+			"execute(python3 --version:*)",
+			"apply_patch",
+			"execute(python -c:*)",
+			"execute(python -m:*)",
+			"execute(git --no-pager diff -- terminal_assistant.py safety.py requirements.txt README.md)",
+			"execute(git --no-pager diff --stat)",
+			"execute(git rev-parse --show-toplevel && git ls-files -s)"
+		]
+	}
+}

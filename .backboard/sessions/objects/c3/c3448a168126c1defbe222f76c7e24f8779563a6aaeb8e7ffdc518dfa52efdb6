@@ -83,16 +83,22 @@ Only `YES` executes. `yes`, `y`, blank input, or `NO` do not execute.
 
 ## Test locally
 
-Validate syntax without calling Backboard:
-
-```bash
-python -m py_compile terminal_assistant.py safety.py
-```
-
 Validate the safety policy without calling Backboard:
 
 ```bash
-python -c "from safety import validate_command; cases={'dir':True,'rg TODO .':True,'rm -rf .':False,'dir && del README.md':False,'powershell Get-ChildItem':False}; [print(command, validate_command(command).allowed) for command in cases]"
+python -m unittest discover
+```
+
+Quick manual checks from a Python prompt:
+
+```python
+from safety import validate_command
+
+print(validate_command("dir").allowed)              # True
+print(validate_command("rg TODO .").allowed)        # True
+print(validate_command("rm -rf .").allowed)         # False
+print(validate_command("dir && del README.md").allowed)  # False
+print(validate_command("powershell Get-ChildItem").allowed)  # False
 ```
 
 End-to-end checks:
