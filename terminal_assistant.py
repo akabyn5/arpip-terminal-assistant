@@ -2,6 +2,9 @@
 
 Converts natural-language requests into one proposed terminal command, validates
 the command, and executes only after explicit human confirmation.
+
+This version uses a local Ollama model instead of Backboard, so it runs
+completely free with no API key or credits required.
 """
 
 from __future__ import annotations
@@ -12,8 +15,8 @@ import os
 import re
 import subprocess
 import sys
-
-from backboard import BackboardClient
+import urllib.request
+import urllib.error
 
 from safety import execution_args, validate_command
 
@@ -34,28 +37,51 @@ Rules:
 - If the user asks for an unsafe or unsupported operation, return {"command":""}.
 """.strip()
 
-MODEL_PROVIDER = os.getenv("BACKBOARD_LLM_PROVIDER", "openai")
-MODEL_NAME = os.getenv("BACKBOARD_MODEL_NAME", "gpt-4o")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 COMMAND_TIMEOUT_SECONDS = 30
+OLLAMA_TIMEOUT_SECONDS = 60
 
 
-async def generate_command(client: BackboardClient, user_request: str) -> str:
-    """Ask Backboard for exactly one proposed command."""
+async def generate_command(user_request: str) -> str:
+    """Ask the local Ollama model for exactly one proposed command."""
 
-    response = await client.send_message(
-        user_request,
-        system_prompt=SYSTEM_PROMPT,
-        llm_provider=MODEL_PROVIDER,
-        model_name=MODEL_NAME,
-        memory="off",
-        web_search="off",
-        json_output=True,
-    )
-    return extract_command(response.content)
+    def _call_ollama() -> str:
+        payload = json.dumps(
+            {
+                "model": OLLAMA_MODEL,
+                "prompt": user_request,
+                "system": SYSTEM_PROMPT,
+                "format": "json",
+                "stream": False,
+            }
+        ).encode("utf-8")
+
+        req = urllib.request.Request(
+            f"{OLLAMA_HOST}/api/generate",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT_SECONDS) as resp:
+                body = resp.read().decode("utf-8")
+        except urllib.error.URLError as exc:
+            raise RuntimeError(
+                f"Could not reach Ollama at {OLLAMA_HOST}. Is 'ollama serve' running "
+                f"and did you 'ollama pull {OLLAMA_MODEL}'? ({exc})"
+            ) from exc
+
+        data = json.loads(body)
+        return data.get("response", "")
+
+    # urllib is blocking, so run it in a thread to keep the async loop responsive.
+    content = await asyncio.to_thread(_call_ollama)
+    return extract_command(content)
 
 
 def extract_command(content: str) -> str:
-    """Extract the command from the SDK response content."""
+    """Extract the command from the model response content."""
 
     if not content:
         return ""
@@ -117,14 +143,8 @@ def execute_command(command: str) -> int:
 
 
 async def interactive_loop() -> int:
-    api_key = os.getenv("BACKBOARD_API_KEY")
-    if not api_key:
-        print("BACKBOARD_API_KEY is required. Set it in your environment and try again.")
-        return 1
-
-    client = BackboardClient(api_key=api_key)
-
-    print("ARPIP Terminal Assistant")
+    print("ARPIP Terminal Assistant (local Ollama mode)")
+    print(f"Using model '{OLLAMA_MODEL}' at {OLLAMA_HOST}")
     print("Type a request, or type 'exit' to quit.")
     print("Commands are never executed unless you enter YES exactly.\n")
 
@@ -142,9 +162,9 @@ async def interactive_loop() -> int:
             return 0
 
         try:
-            command = await generate_command(client, user_request)
+            command = await generate_command(user_request)
         except Exception as exc:  # noqa: BLE001 - CLI should show a concise failure.
-            print(f"Backboard request failed: {exc}")
+            print(f"Ollama request failed: {exc}")
             continue
 
         display_command(command)
